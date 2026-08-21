@@ -1,7 +1,7 @@
 ﻿using AsignacionRolesApp.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System;
 
 namespace AsignacionRolesApp.Services
 {
@@ -16,54 +16,85 @@ namespace AsignacionRolesApp.Services
             _rand = new Random();
         }
 
-        public List<Asignacion> AsignarRoles(List<Persona> personas)
+        // Ahora recibe las asignaciones actuales para mantener la continuidad
+        public List<Asignacion> AsignarRoles(List<Persona> presentes, List<Asignacion> asignacionesActuales)
         {
-            var asignaciones = new List<Asignacion>();
-            var disponibles = new List<Persona>(personas);
+            var asignacionesFinales = new List<Asignacion>();
             var asignadosIds = new HashSet<int>();
 
-            foreach (var rol in _rolesRequeridos.Keys.OrderBy(r => r))
-            {
-                int asignados = 0;
-                int requeridos = _rolesRequeridos[rol];
+            // 1. RETENER: Mantener los roles de quienes siguen presentes
+            var presentesIds = presentes.Select(p => p.UserId).ToHashSet();
 
-                // Asignar con rol exacto
-                var candidatos = disponibles
-                    .Where(p => p.RolReal == rol && !asignadosIds.Contains(p.UserId))
+            foreach (var actual in asignacionesActuales)
+            {
+                // Si el usuario que tenía un rol SIGUE en la planta, se lo retenemos
+                if (presentesIds.Contains(actual.UserId))
+                {
+                    var persona = presentes.First(p => p.UserId == actual.UserId);
+                    asignacionesFinales.Add(CrearAsignacion(persona, actual.RolAsignado));
+                    asignadosIds.Add(actual.UserId);
+                }
+                // Si no está en presentesIds, significa que se fue de la planta. 
+                // Su rol queda vacante y se llenará en el paso 3.
+            }
+
+            // 2. CALCULAR HUECOS: ¿Cuántos puestos faltan por cubrir en cada rol?
+            var rolesFaltantes = new Dictionary<int, int>();
+            foreach (var rol in _rolesRequeridos.Keys)
+            {
+                int requeridos = _rolesRequeridos[rol];
+                int retenidos = asignacionesFinales.Count(a => a.RolAsignado == rol);
+                int faltan = requeridos - retenidos;
+
+                if (faltan > 0)
+                {
+                    rolesFaltantes[rol] = faltan;
+                }
+            }
+
+            // 3. POOL DE DISPONIBLES: Personas presentes que NO tienen un rol retenido
+            var disponibles = presentes.Where(p => !asignadosIds.Contains(p.UserId)).ToList();
+
+            // 4. ASIGNAR NUEVOS: Llenar los huecos calculados en el paso 2
+            foreach (var rol in rolesFaltantes.Keys.OrderBy(r => r))
+            {
+                int requeridos = rolesFaltantes[rol];
+                int asignados = 0;
+
+                // Prioridad 1: Buscar personas con el rol exacto
+                var candidatosExactos = disponibles
+                    .Where(p => p.RolReal == rol)
+                    .OrderBy(p => _rand.Next())
                     .ToList();
 
-                while (asignados < requeridos && candidatos.Count > 0)
+                foreach (var candidato in candidatosExactos)
                 {
-                    var seleccionado = candidatos[_rand.Next(candidatos.Count)];
-                    asignaciones.Add(CrearAsignacion(seleccionado, rol));
-                    disponibles.Remove(seleccionado);
-                    candidatos.Remove(seleccionado);
-                    asignadosIds.Add(seleccionado.UserId);
+                    if (asignados >= requeridos) break;
+                    asignacionesFinales.Add(CrearAsignacion(candidato, rol));
+                    asignadosIds.Add(candidato.UserId);
+                    disponibles.Remove(candidato);
                     asignados++;
                 }
 
-                // Buscar en niveles inferiores
-                int nivelBusqueda = rol + 1;
-                while (asignados < requeridos && nivelBusqueda <= 5)
+                // Prioridad 2: Fallback con cualquier persona disponible
+                if (asignados < requeridos)
                 {
-                    candidatos = disponibles
-                        .Where(p => p.RolReal == nivelBusqueda && !asignadosIds.Contains(p.UserId))
+                    var candidatosFallback = disponibles
+                        .OrderBy(p => _rand.Next())
                         .ToList();
 
-                    while (asignados < requeridos && candidatos.Count > 0)
+                    foreach (var candidato in candidatosFallback)
                     {
-                        var seleccionado = candidatos[_rand.Next(candidatos.Count)];
-                        asignaciones.Add(CrearAsignacion(seleccionado, rol));
-                        disponibles.Remove(seleccionado);
-                        candidatos.Remove(seleccionado);
-                        asignadosIds.Add(seleccionado.UserId);
+                        if (asignados >= requeridos) break;
+                        asignacionesFinales.Add(CrearAsignacion(candidato, rol));
+                        asignadosIds.Add(candidato.UserId);
+                        disponibles.Remove(candidato);
                         asignados++;
                     }
-
-                    nivelBusqueda++;
                 }
             }
-            return asignaciones;
+
+            return asignacionesFinales;
         }
 
         private Asignacion CrearAsignacion(Persona persona, int rolAsignado)

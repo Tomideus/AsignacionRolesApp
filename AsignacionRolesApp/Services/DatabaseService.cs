@@ -51,6 +51,35 @@ namespace AsignacionRolesApp.Services
             return personas;
         }
 
+        public List<Asignacion> ObtenerAsignacionesActivas()
+        {
+            var asignaciones = new List<Asignacion>();
+
+            using (var conn = new SqlConnection(_connectionString))
+            {
+                conn.Open();
+                // Solo traemos el ID de usuario y el rol que tiene asignado actualmente
+                var query = @"
+                    SELECT user_id, assigned_role_id
+                    FROM role_assignments
+                    WHERE is_active = 1";
+
+                using (var cmd = new SqlCommand(query, conn))
+                using (var reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        asignaciones.Add(new Asignacion
+                        {
+                            UserId = reader.GetInt32(0),
+                            RolAsignado = reader.GetInt32(1)
+                        });
+                    }
+                }
+            }
+            return asignaciones;
+        }
+
         public void GuardarAsignaciones(List<Asignacion> asignaciones)
         {
             using (var conn = new SqlConnection(_connectionString))
