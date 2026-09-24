@@ -1,7 +1,5 @@
-﻿using Microsoft.Data.SqlClient;
-using AsignacionRolesApp.Models;
-using System.Collections.Generic;
-using System;
+﻿using AsignacionRolesApp.Models;
+using Npgsql; // <-- CAMBIO 1: Usar Npgsql en lugar de Microsoft.Data.SqlClient
 
 namespace AsignacionRolesApp.Services
 {
@@ -18,7 +16,8 @@ namespace AsignacionRolesApp.Services
         {
             var personas = new List<Persona>();
 
-            using (var conn = new SqlConnection(_connectionString))
+            // <-- CAMBIO 2: NpgsqlConnection en lugar de SqlConnection
+            using (var conn = new NpgsqlConnection(_connectionString))
             {
                 conn.Open();
                 var query = @"
@@ -31,7 +30,8 @@ namespace AsignacionRolesApp.Services
                     WHERE a.is_present = 1 
                     AND u.role_id != 6";
 
-                using (var cmd = new SqlCommand(query, conn))
+                // <-- CAMBIO 3: NpgsqlCommand en lugar de SqlCommand
+                using (var cmd = new NpgsqlCommand(query, conn))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
@@ -55,16 +55,15 @@ namespace AsignacionRolesApp.Services
         {
             var asignaciones = new List<Asignacion>();
 
-            using (var conn = new SqlConnection(_connectionString))
+            using (var conn = new NpgsqlConnection(_connectionString))
             {
                 conn.Open();
-                // Solo traemos el ID de usuario y el rol que tiene asignado actualmente
                 var query = @"
                     SELECT user_id, assigned_role_id
                     FROM role_assignments
                     WHERE is_active = 1";
 
-                using (var cmd = new SqlCommand(query, conn))
+                using (var cmd = new NpgsqlCommand(query, conn))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
@@ -82,29 +81,28 @@ namespace AsignacionRolesApp.Services
 
         public void GuardarAsignaciones(List<Asignacion> asignaciones)
         {
-            using (var conn = new SqlConnection(_connectionString))
+            using (var conn = new NpgsqlConnection(_connectionString))
             {
                 conn.Open();
 
-                // Iniciar transacción
                 using (var transaction = conn.BeginTransaction())
                 {
                     try
                     {
-                        // Desactivar asignaciones anteriores
-                        var updateCmd = new SqlCommand(
-                            "UPDATE role_assignments SET is_active = 0, assignment_end = GETDATE() WHERE is_active = 1",
+                        // <-- CAMBIO 4: CURRENT_TIMESTAMP en lugar de GETDATE()
+                        var updateCmd = new NpgsqlCommand(
+                            "UPDATE role_assignments SET is_active = 0, assignment_end = CURRENT_TIMESTAMP WHERE is_active = 1",
                             conn, transaction);
                         updateCmd.ExecuteNonQuery();
 
-                        // Insertar nuevas asignaciones
                         foreach (var asignacion in asignaciones)
                         {
-                            var insertCmd = new SqlCommand(
+                            var insertCmd = new NpgsqlCommand(
                                 "INSERT INTO role_assignments (user_id, assigned_role_id, assignment_start, is_active) " +
-                                "VALUES (@userId, @rolId, GETDATE(), 1)",
+                                "VALUES (@userId, @rolId, CURRENT_TIMESTAMP, 1)",
                                 conn, transaction);
 
+                            // Npgsql maneja los parámetros con @ perfectamente, igual que SqlClient
                             insertCmd.Parameters.AddWithValue("@userId", asignacion.UserId);
                             insertCmd.Parameters.AddWithValue("@rolId", asignacion.RolAsignado);
                             insertCmd.ExecuteNonQuery();
